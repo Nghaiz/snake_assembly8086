@@ -24,15 +24,21 @@
     ;color settings
     theme_text DB "Default"
     themes DB "Default","Forest","Ocean","Sunset","Neon"
-    theme_count EQU 5
-    current_theme DB 0
+    snake_color     DB 02h      ; giá tr? m?c d?nh
+    food_color      DB 04h
+    bonus_color     DB 05h
+    border_color    DB 0Ah
+    obstacle_color  DB 07h
+    back_color      DB 00h
     
-    ;themes color codes (snake,food,bonus,border,obstacle,background)
-    theme_colors DB 0Fh, 04h, 0Eh, 0Fh, 0Ch, 00h  ; Default (white snake, red food, yellow bonus, white border, red obstacles)
-                 DB 0Ah, 02h, 0Eh, 06h, 08h, 00h  ; Forest (green snake, dark green food, yellow bonus, brown border)
-                 DB 09h, 0Bh, 0Fh, 01h, 03h, 00h  ; Ocean (blue snake, cyan food, white bonus, blue border)
-                 DB 0Ch, 0Eh, 0Fh, 06h, 04h, 00h  ; Sunset (red snake, yellow food, white bonus, brown border)
-                 DB 0Dh, 0Bh, 0Ah, 0Eh, 05h, 00h  ; Neon (magenta snake, cyan food, green bonus, yellow border)
+    theme_count     DB 4        ; s? theme b?n có
+    current_theme   DB 0
+    
+    ; 6 byte / theme  ?  4 theme = 24 byte
+    theme_colors    DB 02h,04h,05h,0Ah,07h,00h    ; Theme-0
+                    DB 0Ah,0Ch,04h,08h,01h,00h    ; Theme-1
+                    DB 0Eh,02h,0Dh,05h,06h,00h    ; Theme-2
+                    DB 02h,0Fh,08h,09h,0Ch,00h    ; Theme-3
     
     ;high scores
     hs_title DB "== HIGH SCORES =="
@@ -317,26 +323,78 @@ settings_menu PROC
         MOV speed_level, 1
         
     update_delay:
-        MOV AL, speed_level
-        MOV BL, 5
-        XOR AH, AH
-        DIV BL
-        MOV BL, AL
-        MOV AX, 5000
-        DIV BL
-        MOV delay_count, AX
-        JMP settings_menu
+        ; delay_count = 5000 / speed_level   (1?5 m?c)
+        MOV     AX, 5000
+        XOR     DX, DX
+        MOV     BL, speed_level
+        DIV     BL            ; AX = 5000 / BL
+        MOV     delay_count, AX
+        JMP     settings_menu
     
     change_theme:
-        INC current_theme
-        CMP current_theme, theme_count
-        JB settings_menu
-        MOV current_theme, 0
-        JMP settings_menu
+        inc     current_theme
+
+        mov     al, current_theme   ; AL = current_theme
+        cmp     al, theme_count     ; so sánh AL v?i theme_count (ô nh?) 
+        jb      short apply_ok      ; n?u current_theme < theme_count thì OK
+
+        mov     current_theme, 0    ; ngu?c l?i, quay v? theme 0
+    apply_ok:
+        call    apply_theme
+        jmp     settings_menu
+
+
     
     exit_settings:
         RET
 settings_menu ENDP
+
+apply_theme PROC
+     push    si
+     push    bx
+
+     mov     al, current_theme
+     xor     ah, ah            ; AX = theme index
+     mov     bx, ax            ; BX = theme
+
+     ; BX = BX * 6  (m?i theme 6 byte)
+     shl     bx, 1             ; *2
+     mov     ax, bx
+     shl     ax, 2             ; *4
+     add     bx, ax            ; *6  (2+4)
+
+     lea     si, theme_colors
+     add     si, bx            ; SI tr? t?i màu d?u c?a theme
+
+     ; --- snake_color = [SI] ---
+     mov     al, [si]
+     mov     snake_color, al
+
+     ; --- food_color = [SI+1] ---
+     mov     al, [si+1]
+     mov     food_color, al
+
+     ; --- bonus_color = [SI+2] ---
+     mov     al, [si+2]
+     mov     bonus_color, al
+
+     ; --- border_color = [SI+3] ---
+     mov     al, [si+3]
+     mov     border_color, al
+
+     ; --- obstacle_color = [SI+4] ---
+     mov     al, [si+4]
+     mov     obstacle_color, al
+
+     ; --- back_color = [SI+5] ---
+     mov     al, [si+5]
+     mov     back_color, al
+
+     pop     bx
+     pop     si
+     ret
+apply_theme ENDP
+
 
 ; High score screen
 high_score_screen PROC
@@ -667,6 +725,16 @@ startag:
     check_input:
         MOV AH, 1
         INT 16H
+        CMP  AH, 48h       ; scan ?
+        JE   mu
+        CMP  AH, 50h       ; scan ?
+        JE   md
+        CMP  AH, 4Bh       ; scan ?
+        JE   ml
+        CMP  AH, 4Dh       ; scan ?
+        JE   mr
+
+        
         JZ auto_move
         MOV AH, 0
         INT 16H ; lay input tu buffer
@@ -1113,9 +1181,9 @@ eat PROC ; kiem tra ran co va cham voi border, *, hay tu an chinh no khong
         ; Set all new segments to body character
         MOV CX, 0
         MOV CL, bonus_size
-        XOR DI, DI       ; X�a DI (d?t v? 0)
-        MOV DL, snakel   ; T?i gi� tr? 8-bit v�o thanh ghi 8-bit
-        MOV DI, DX       ; G�n gi� tr? 16-bit v�o DI
+        XOR DI, DI       ; Xóa DI (d?t v? 0)
+        MOV DL, snakel   ; T?i giá tr? 8-bit vào thanh ghi 8-bit
+        MOV DI, DX       ; Gán giá tr? 16-bit vào DI
         SUB DI, CX
         
     bonus_grow_loop:
