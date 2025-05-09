@@ -1,1501 +1,2077 @@
-.Model Small
-.Stack 100h
-.Data
-    ;main menu
-    t0 DB "   _____ _   _          _  ________ "
-    t1 DB "  / ____| \ | |   /\   | |/ /  ____|"
-    t2 DB " | (___ |  \| |  /  \  | ' /| |__   "
-    t3 DB "  \___ \| . ` | / /\ \ |  < |  __|  "
-    t4 DB "  ____) | |\  |/ ____ \| . \| |____ "
-    t5 DB " |_____/|_| \_/_/    \_\_|\_\______|"
-    main1 DB "Press any key to start..."
-    menu1 DB "1. Play Game"
-    menu2 DB "2. Settings"
-    menu3 DB "3. High Scores"
-    menu4 DB "4. Exit"
-    
-    ;settings menu
-    set_title DB "== SETTINGS =="
-    set1 DB "1. Speed: "
-    set2 DB "2. Color Theme: "
-    set3 DB "3. Back"
-    speed_text DB "x1 "
-    
-    ;color settings
-    theme_text DB "Default"
-    themes DB "Default","Forest","Ocean","Sunset","Neon"
-    snake_color     DB 02h      ; giá tr? m?c d?nh
-    food_color      DB 04h
-    bonus_color     DB 05h
-    border_color    DB 0Ah
-    obstacle_color  DB 07h
-    back_color      DB 00h
-    
-    theme_count     DB 4        ; s? theme b?n có
-    current_theme   DB 0
-    
-    ; 6 byte / theme  ?  4 theme = 24 byte
-    theme_colors    DB 02h,04h,05h,0Ah,07h,00h    ; Theme-0
-                    DB 0Ah,0Ch,04h,08h,01h,00h    ; Theme-1
-                    DB 0Eh,02h,0Dh,05h,06h,00h    ; Theme-2
-                    DB 02h,0Fh,08h,09h,0Ch,00h    ; Theme-3
-    
-    ;high scores
-    hs_title DB "== HIGH SCORES =="
-    hs_empty DB "No scores yet"
-    hs_prompt DB "Press any key to continue..."
-    high_scores DW 5 DUP(0)
-    score_names DB "AAA", "AAA", "AAA", "AAA", "AAA"
-    
-    ;bild
-    hlths DB "Lives:",3,3,3
-    ;ingame
-    letadd DW ? ; dia chi cua *
-    hlth DB 6 ; /2 la luong mau
-    
-    ;new variables for speed
-    speed_level DB 1  ; 1=normal, 2=x2, 3=x3, 5=x5
-    delay_count DW 5000  ; base delay value
-    
-    ;bonus food variables
-    bonus_active DB 0  ; 0=no bonus, 1=bonus active
-    bonus_timer DW 0   ; timer for bonus food
-    bonus_pos DW 0     ; position of bonus food
-    bonus_type DB 0    ; type of bonus (1-3)
-    bonus_value DB 0   ; point value of bonus food
-    bonus_size DB 0    ; visual size indicator
-    
-    ;obstacle variables
-    obstacle_active DB 0   ; 0=no obstacles, 1=obstacles active
-    obstacle_timer DW 0    ; timer for obstacle generation
-    obstacle_positions DW 10 DUP(0)  ; positions of obstacles
-    obstacle_count DB 0    ; number of active obstacles
-    max_obstacles DB 10    ; maximum number of obstacles
-    
-    ;Snake Info            
-    start_position equ 1000 ; vi tri o giua man hinh
-    sadd DW start_position, 100 Dup(0) ;dia chi cac ky tu cua ran tren console
-    snake DB 8,100 Dup(0) ; cac ky tu cua ran
-    snakel DB 1 
-    ;end 
-    
-    sc DB "Score: $"
-    score DB 0
-    gmov DB "Game Over"
-    endtxt DB "Restart ? (y / n)"
-    
-    two DW 2
-    map DW 1755
-    et DW 80
-    
-    random_seed DW 0   ; for better random number generation
-    enter_name_msg DB "Enter your initials: $"
+; SNAKE GAME IN ASSEMBLY 8086
+; Improved version with fixes for keyboard input and movement
 
-.Code
-start:
-    MOV AX, @Data
+.MODEL SMALL
+.STACK 100h
+.DATA
+    ; Constants
+    SCREEN_WIDTH    EQU 80
+    SCREEN_HEIGHT   EQU 25
+    GAME_AREA_WIDTH EQU 78
+    GAME_AREA_HEIGHT EQU 23
+    
+    ; Snake properties
+    snake_head_x    DW 40      ; Initial X position
+    snake_head_y    DW 12      ; Initial Y position
+    snake_length    DW 5       ; Initial length
+    snake_direction DB 0       ; 0=right, 1=left, 2=up, 3=down
+    snake_speed     DW 100     ; Default speed (milliseconds between moves)
+    
+    ; Game state variables
+    game_over       DB 0       ; 0=playing, 1=game over
+    score           DW 0       ; Player score
+    difficulty      DB 1       ; 1=Easy, 2=Medium, 3=Hard
+    current_theme   DB 1       ; 1=Classic, 2=Blue, 3=Red
+    game_paused     DB 0       ; 0=not paused, 1=paused
+    
+    ; Food properties
+    food_x          DW 60      ; Initial food X position
+    food_y          DW 12      ; Initial food Y position
+    
+    ; Snake body segments storage (max 100 segments)
+    snake_body_x    DW 100 DUP(0)
+    snake_body_y    DW 100 DUP(0)
+    
+    ; Obstacles (for medium and hard difficulties)
+    max_obstacles   DB 20      ; Maximum number of obstacles
+    obstacle_count  DB 0       ; Current number of obstacles
+    obstacle_x      DW 20 DUP(0) ; Obstacle X positions
+    obstacle_y      DW 20 DUP(0) ; Obstacle Y positions
+    
+    ; Colors
+    head_color      DB 10      ; Green
+    body_color      DB 2       ; Dark green
+    food_color      DB 12      ; Red
+    border_color    DB 15      ; White
+    obstacle_color  DB 4       ; Red
+    bg_color        DB 0       ; Black
+    
+    ; Messages
+    title_msg       DB 'SNAKE GAME', 0
+    score_msg       DB 'Score: ', 0
+    game_over_msg   DB 'GAME OVER! Press SPACE to restart or ESC to exit', 0
+    pause_msg       DB 'GAME PAUSED - Press P to continue', 0
+    
+    ; Menu options
+    menu_title      DB 'SNAKE GAME MENU', 0
+    menu_start      DB '1. Start Game', 0
+    menu_settings   DB '2. Settings', 0
+    menu_exit       DB '3. Exit', 0
+    
+    ; Settings menu
+    settings_title  DB 'SETTINGS', 0
+    settings_theme  DB '1. Change Theme', 0
+    settings_diff   DB '2. Difficulty', 0
+    settings_back   DB '3. Back', 0
+    
+    ; Theme menu
+    theme_title     DB 'SELECT THEME', 0
+    theme_classic   DB '1. Classic', 0
+    theme_blue      DB '2. Blue', 0
+    theme_red       DB '3. Red', 0
+    theme_back      DB '4. Back', 0
+    
+    ; Difficulty menu
+    diff_title      DB 'SELECT DIFFICULTY', 0
+    diff_easy       DB '1. Easy', 0
+    diff_medium     DB '2. Medium', 0
+    diff_hard       DB '3. Hard', 0
+    diff_back       DB '4. Back', 0
+    
+    ; Difficulty descriptions
+    diff_easy_desc  DB 'Slow snake, no obstacles', 0
+    diff_med_desc   DB 'Medium speed, some obstacles', 0
+    diff_hard_desc  DB 'Fast snake, many obstacles, special effects', 0
+    
+    ; Controls info
+    controls_msg    DB 'Controls: WASD or Arrow Keys, P to pause, ESC to quit', 0
+    
+    ; Current menu state
+    current_menu    DB 0       ; 0=main menu, 1=game, 2=settings, 3=theme, 4=difficulty
+    
+    ; Random number seed
+    random_seed     DW 1234
+    
+    ; Timer variables
+    last_time       DW 0       ; Last update time
+    
+    ; Direction control
+    last_direction  DB 0       ; To prevent 180 degree turns
+
+.CODE
+MAIN PROC
+    MOV AX, @DATA
     MOV DS, AX
     
-    MOV AX, 0b800h
-    MOV ES, AX 
-    
-    MOV AH, 0
-    MOV AL, 0
-    INT 10h ; set man hinh 40 x 25
-    
-    CLD ;clear direction flag
-    
-    ;hide text cursor
-    MOV AH, 1
-    MOV CH, 2BH
-    MOV CL, 0BH
+    ; Set video mode (80x25 text mode with color)
+    MOV AX, 3
     INT 10h
     
-    ;initialize random seed
-    MOV AH, 00h
-    INT 1Ah
-    MOV random_seed, DX  
+    ; Hide cursor
+    MOV AH, 1
+    MOV CX, 2000h      ; Set cursor out of view
+    INT 10h
+    
+    ; Initialize random seed with timer value
+    MOV AH, 0
+    INT 1Ah            ; Get timer count in CX:DX
+    MOV random_seed, DX
+    
+    ; Initialize the snake body positions
+    CALL InitializeSnake
+    
+    ; Start with main menu
+    MOV current_menu, 0
     
 main_loop:
-    CALL clearall
-    CALL main_menu
-    JMP main_loop  ; return to main menu after game over
-
-; Main menu handler
-main_menu_handler PROC
-    show_menu:
-        CALL clearall
-        
-        ; Display title
-        MOV DI, 322
-        LEA SI, t0
-        MOV CX, 36
-        d0:
-            movsb
-            INC DI
-            LOOP d0
-        
-        MOV DI, 402
-        LEA SI, t1
-        MOV CX, 36
-        d1:
-            movsb
-            INC DI
-            LOOP d1
-        
-        MOV DI, 482
-        LEA SI, t2
-        MOV CX, 36
-        d2:
-            movsb
-            INC DI
-            LOOP d2 
-        
-        MOV DI, 562
-        LEA SI, t3
-        MOV CX, 36
-        d3:
-            movsb
-            INC DI
-            LOOP d3 
+    CMP current_menu, 0
+    JE show_main_menu
+    CMP current_menu, 1
+    JE start_game
+    CMP current_menu, 2
+    JE show_settings_menu
+    CMP current_menu, 3
+    JE show_theme_menu
+    CMP current_menu, 4
+    JE show_difficulty_menu
+    JMP main_loop      ; Default case, loop back
     
-        MOV DI, 642
-        LEA SI, t4
-        MOV CX, 36
-        d4:
-            movsb
-            INC DI
-            LOOP d4
-        
-        MOV DI, 722
-        LEA SI, t5
-        MOV CX, 36
-        d5:
-            movsb
-            INC DI
-            LOOP d5
-        
-        ; Display menu options
-        MOV DI, 962
-        LEA SI, menu1
-        MOV CX, 10
-        m1:
-            movsb
-            INC DI
-            LOOP m1
-            
-        MOV DI, 1042
-        LEA SI, menu2
-        MOV CX, 11
-        m2:
-            movsb
-            INC DI
-            LOOP m2
-            
-        MOV DI, 1122
-        LEA SI, menu3
-        MOV CX, 13
-        m3:
-            movsb
-            INC DI
-            LOOP m3
-            
-        MOV DI, 1202
-        LEA SI, menu4
-        MOV CX, 7
-        m4:
-            movsb
-            INC DI
-            LOOP m4
-        
-        ; Wait for key input
-        wait_key:
-            MOV AH, 0
-            INT 16h
-            
-            CMP AL, '1'
-            JE start_game
-            CMP AL, '2'
-            JE show_settings
-            CMP AL, '3'
-            JE show_highscores
-            CMP AL, '4'
-            JE exit_game
-            
-            JMP wait_key
-            
-    start_game:
-        JMP startag
-        
-    show_settings:
-        CALL settings_menu
-        JMP show_menu
-        
-    show_highscores:
-        CALL high_score_screen
-        JMP show_menu
-        
-    exit_game:
-        JMP ext
-        
-    RET
-main_menu_handler ENDP
-
-; Settings menu
-settings_menu PROC
-    CALL clearall
+show_main_menu:
+    CALL ClearScreen
+    CALL DisplayMainMenu
+    CALL WaitForMenuInput
+    JMP main_loop
     
-    ; Display title
-    MOV DI, 482
-    LEA SI, set_title
-    MOV CX, 14
-    s0:
-        movsb
-        INC DI
-        LOOP s0
+show_settings_menu:
+    CALL ClearScreen
+    CALL DisplaySettingsMenu
+    CALL WaitForMenuInput
+    JMP main_loop
     
-    ; Display speed setting
-    MOV DI, 642
-    LEA SI, set1
-    MOV CX, 9
-    s1:
-        movsb
-        INC DI
-        LOOP s1
+show_theme_menu:
+    CALL ClearScreen
+    CALL DisplayThemeMenu
+    CALL WaitForMenuInput
+    JMP main_loop
     
-    ; Display current speed
-    MOV AL, speed_level
-    ADD AL, '0'
-    MOV BYTE PTR ES:[DI], AL
+show_difficulty_menu:
+    CALL ClearScreen
+    CALL DisplayDifficultyMenu
+    CALL WaitForMenuInput
+    JMP main_loop
     
-    ; Display "x" for multiplication
-    MOV BYTE PTR ES:[DI-1], 'x'
+start_game:
+    CALL ClearScreen
+    CALL InitializeGame
+    CALL PlayGame
+    MOV current_menu, 0    ; Return to main menu after game ends
+    JMP main_loop
     
-    ; Display color theme setting
-    MOV DI, 722
-    LEA SI, set2
-    MOV CX, 15
-    s2:
-        movsb
-        INC DI
-        LOOP s2
-    
-    ; Display current theme
-    XOR BH, BH
-    MOV BL, current_theme
-    MOV CL, 7  ; Theme name length
-    MUL CL
-    LEA SI, themes
-    ADD SI, AX
-    MOV CX, 7
-    theme_name:
-        MOVSB
-        INC DI
-        LOOP theme_name
-    
-    ; Display back option
-    MOV DI, 802
-    LEA SI, set3
-    MOV CX, 7
-    s3:
-        movsb
-        INC DI
-        LOOP s3
-    
-    ; Wait for key input
-    settings_wait:
-        MOV AH, 0
-        INT 16h
-        
-        CMP AL, '1'
-        JE change_speed
-        CMP AL, '2'
-        JE change_theme
-        CMP AL, '3'
-        JE exit_settings
-        
-        JMP settings_wait
-    
-    change_speed:
-        INC speed_level
-        CMP speed_level, 6
-        JNE update_delay
-        MOV speed_level, 1
-        
-    update_delay:
-        ; delay_count = 5000 / speed_level   (1?5 m?c)
-        MOV     AX, 5000
-        XOR     DX, DX
-        MOV     BL, speed_level
-        DIV     BL            ; AX = 5000 / BL
-        MOV     delay_count, AX
-        JMP     settings_menu
-    
-    change_theme:
-        inc     current_theme
-
-        mov     al, current_theme   ; AL = current_theme
-        cmp     al, theme_count     ; so sánh AL v?i theme_count (ô nh?) 
-        jb      short apply_ok      ; n?u current_theme < theme_count thì OK
-
-        mov     current_theme, 0    ; ngu?c l?i, quay v? theme 0
-    apply_ok:
-        call    apply_theme
-        jmp     settings_menu
-
-
-    
-    exit_settings:
-        RET
-settings_menu ENDP
-
-apply_theme PROC
-     push    si
-     push    bx
-
-     mov     al, current_theme
-     xor     ah, ah            ; AX = theme index
-     mov     bx, ax            ; BX = theme
-
-     ; BX = BX * 6  (m?i theme 6 byte)
-     shl     bx, 1             ; *2
-     mov     ax, bx
-     shl     ax, 2             ; *4
-     add     bx, ax            ; *6  (2+4)
-
-     lea     si, theme_colors
-     add     si, bx            ; SI tr? t?i màu d?u c?a theme
-
-     ; --- snake_color = [SI] ---
-     mov     al, [si]
-     mov     snake_color, al
-
-     ; --- food_color = [SI+1] ---
-     mov     al, [si+1]
-     mov     food_color, al
-
-     ; --- bonus_color = [SI+2] ---
-     mov     al, [si+2]
-     mov     bonus_color, al
-
-     ; --- border_color = [SI+3] ---
-     mov     al, [si+3]
-     mov     border_color, al
-
-     ; --- obstacle_color = [SI+4] ---
-     mov     al, [si+4]
-     mov     obstacle_color, al
-
-     ; --- back_color = [SI+5] ---
-     mov     al, [si+5]
-     mov     back_color, al
-
-     pop     bx
-     pop     si
-     ret
-apply_theme ENDP
-
-
-; High score screen
-high_score_screen PROC
-    CALL clearall
-    
-    ; Display title
-    MOV DI, 482
-    LEA SI, hs_title
-    MOV CX, 16
-    h0:
-        movsb
-        INC DI
-        LOOP h0
-    
-    ; Check if there are any high scores
-    CMP high_scores[0], 0
-    JNE show_scores
-    
-    ; Display "No scores yet" message
-    MOV DI, 642
-    LEA SI, hs_empty
-    MOV CX, 12
-    h1:
-        movsb
-        INC DI
-        LOOP h1
-        
-    JMP hs_wait
-    
-    show_scores:
-        MOV DI, 642
-        MOV SI, 0
-        MOV CX, 5
-        
-    score_loop:
-        PUSH CX
-        
-        ; Display score position (1-5)
-        MOV AX, 6
-        SUB AX, CX
-        ADD AL, '0'
-        MOV BYTE PTR ES:[DI], AL
-        ADD DI, 2
-        
-        ; Display dot and space
-        MOV BYTE PTR ES:[DI], '.'
-        ADD DI, 2
-        MOV BYTE PTR ES:[DI], ' '
-        ADD DI, 2
-        
-        ; Display initials
-        MOV BX, 5
-        SUB BX, CX
-        IMUL BX, 3  ; Each name is 3 chars
-        MOV SI, BX  ; Use SI for indexing
-        LEA BX, score_names
-        ADD SI, BX
-        
-        MOV CX, 3
-        init_loop:
-            MOVSB
-            INC DI
-            LOOP init_loop
-        
-        ; Display space and score
-        MOV BYTE PTR ES:[DI], ' '
-        ADD DI, 2
-        MOV BYTE PTR ES:[DI], '-'
-        ADD DI, 2
-        MOV BYTE PTR ES:[DI], ' '
-        ADD DI, 2
-        
-        ; Convert score to decimal and display
-        MOV BX, 5
-        SUB BX, CX
-        SHL BX, 1  ; Each score is a word (2 bytes)
-        MOV AX, high_scores[BX]
-        
-        ; Skip if score is 0
-        CMP AX, 0
-        JE skip_score
-        
-        CALL display_number
-        
-    skip_score:
-        ADD DI, 80  ; Move to next line
-        POP CX
-        LOOP score_loop
-    
-    ; Display prompt
-    MOV DI, 1042
-    LEA SI, hs_prompt
-    MOV CX, 27
-    hp:
-        movsb
-        INC DI
-        LOOP hp
-    
-    hs_wait:
-        MOV AH, 0
-        INT 16h
-        RET
-high_score_screen ENDP
-
-; Display a number in decimal
-display_number PROC
-    PUSH AX
-    PUSH BX
-    PUSH CX
-    PUSH DX
-    
-    MOV CX, 0
-    MOV BX, 10
-    
-    num_to_stack:
-        XOR DX, DX
-        DIV BX
-        PUSH DX
-        INC CX
-        CMP AX, 0
-        JNE num_to_stack
-    
-    print_num:
-        POP DX
-        ADD DL, '0'
-        MOV BYTE PTR ES:[DI], DL
-        ADD DI, 2
-        LOOP print_num
-    
-    POP DX
-    POP CX
-    POP BX
-    POP AX
-    RET
-display_number ENDP
-
-; Check and update high scores
-update_high_scores PROC
-    MOV AL, score
-    XOR AH, AH
-    
-    ; Check if score is higher than any high score
-    MOV SI, 8  ; Start from last high score
-    MOV CX, 5
-    
-    check_hs_loop:
-        CMP AX, high_scores[SI]
-        JA update_hs
-        SUB SI, 2
-        LOOP check_hs_loop
-    
-    JMP no_update
-    
-    update_hs:
-        ; Shift lower scores down
-        MOV DI, 8
-        MOV BX, SI
-        
-        shift_loop:
-            CMP DI, BX
-            JBE shift_done
-            MOV DX, high_scores[DI-2]
-            MOV high_scores[DI], DX
-            
-            ; Move name too
-            PUSH AX
-            PUSH BX
-            MOV AX, DI
-            SHR AX, 1  ; DIV 2
-            MOV BX, AX
-            IMUL BX, 3  ; Each name is 3 bytes
-            LEA DI, score_names
-            ADD DI, BX
-            
-            MOV AX, BX
-            SUB AX, 3
-            LEA SI, score_names
-            ADD SI, AX
-            
-            MOV CX, 3
-            REP MOVSB
-            
-            POP BX
-            POP AX
-            
-            SUB DI, 2
-            JMP shift_loop
-        
-        shift_done:
-            ; Insert new score
-            MOV high_scores[BX], AX
-            
-            ; Ask for player initials
-            CALL enter_initials
-    
-    no_update:
-        RET
-update_high_scores ENDP
-
-; Get player initials for high score
-enter_initials PROC
-    ; Display prompt
-    MOV AH, 2
-    MOV DH, 12
-    MOV DL, 10
-    MOV BH, 0
+exit_game:
+    ; Restore text mode
+    MOV AX, 3
     INT 10h
     
-    MOV AH, 9
-    LEA DX, enter_name_msg
+    ; Show cursor
+    MOV AH, 1
+    MOV CX, 0607h
+    INT 10h
+    
+    ; Exit to DOS
+    MOV AX, 4C00h
     INT 21h
-    
-    ; Get 3 characters
-    MOV BX, SI
-    SHR BX, 1  ; DIV 2
-    IMUL BX, 3  ; Each name is 3 bytes
-    LEA DI, score_names
-    ADD DI, BX
-    
-    MOV CX, 3
-    get_initial:
-        MOV AH, 0
-        INT 16h
-        
-        CMP AL, 13  ; Enter key
-        JE init_done
-        
-        ; Only accept letters
-        CMP AL, 'A'
-        JB get_initial
-        CMP AL, 'Z'
-        JBE store_char
-        CMP AL, 'a'
-        JB get_initial
-        CMP AL, 'z'
-        JA get_initial
-        
-        ; Convert lowercase to uppercase
-        AND AL, 0DFh
-        
-        store_char:
-            MOV [DI], AL
-            INC DI
-            
-            ; Echo character
-            MOV DL, AL
-            MOV AH, 2
-            INT 21h
-            
-            LOOP get_initial
-    
-    init_done:
-        RET
-enter_initials ENDP
+MAIN ENDP
 
-main_menu PROC
-    ; Call our enhanced menu handler
-    CALL main_menu_handler
-    RET
-main_menu ENDP
-
-startag:
-    CALL clearall
-    
-    MOV sadd, start_position ; dat ran o vi tri bat dau
-    MOV score, 0
-    MOV hlth, 6
-    MOV snakel, 1
-    MOV snake[0], 8
-    MOV obstacle_active, 0
-    MOV obstacle_count, 0
-    MOV bonus_active, 0
-      
-    CALL bild 
-    
-    XOR CL, CL 
-    XOR DL, DL ; xoa ky tu cu o buffer
-    
-    ; Initialize game loop
-    MOV obstacle_timer, 0
-    
-    read: ; kiem tra input
-        ; Apply delay based on speed setting
-        PUSH CX
-        PUSH DX
-        MOV CX, 0
-        MOV DX, delay_count
-        MOV AH, 86h
-        INT 15h
-        POP DX
-        POP CX
-        
-        ; Update bonus food timer if active
-        CMP bonus_active, 1
-        JNE check_obstacle_timer
-        DEC bonus_timer
-        CMP bonus_timer, 0
-        JNE check_obstacle_timer
-        
-        ; Bonus food expired
-        MOV bonus_active, 0
-        MOV DI, bonus_pos
-        ES: MOV WORD PTR [DI], 0
-        
-    check_obstacle_timer:
-        ; Check if it's time to add obstacles
-        INC obstacle_timer
-        CMP obstacle_timer, 200
-        JL check_input
-        
-        ; Reset timer
-        MOV obstacle_timer, 0
-        
-        ; Only add obstacles if score is high enough (5+)
-        CMP score, 5
-        JL check_input
-        
-        ; Set obstacle active flag
-        MOV obstacle_active, 1
-        
-        ; Add new obstacle if we have room
-        MOV AL, obstacle_count
-        CMP AL, max_obstacles       ; FIX - Loaded into AL first
-        JAE check_input
-        
-        CALL add_obstacle
-        
-    check_input:
-        MOV AH, 1
-        INT 16H
-        CMP  AH, 48h       ; scan ?
-        JE   mu
-        CMP  AH, 50h       ; scan ?
-        JE   md
-        CMP  AH, 4Bh       ; scan ?
-        JE   ml
-        CMP  AH, 4Dh       ; scan ?
-        JE   mr
-
-        
-        JZ auto_move
-        MOV AH, 0
-        INT 16H ; lay input tu buffer
-        AND AL, 0dfh  ; chuyen ky tu nhap vao in thuong -> in hoa
-        MOV DL, AL
-    
-    process_movement:
-        CMP DL, 'A'
-        JNE right
-        CALL ml
-        MOV CL, DL
-        JMP update_bonus
-    
-    right:
-        CMP DL, 'D'
-        JNE up
-        CALL mr
-        MOV CL, DL
-        JMP update_bonus
-    
-    up:
-        CMP DL, 'W'
-        JNE down
-        CALL mu 
-        MOV CL, DL
-        JMP update_bonus
-    
-    down:
-        CMP DL, 'S'
-        JNE auto_move
-        CALL md
-        MOV CL, DL
-        JMP update_bonus
-        
-    auto_move:
-        ; If no key pressed, continue in last direction
-        CMP CL, 'W'
-        JE auto_up
-        CMP CL, 'A'
-        JE auto_left
-        CMP CL, 'S'
-        JE auto_down
-        CMP CL, 'D'
-        JE auto_right
-        JMP update_bonus
-        
-    auto_up:
-        CALL mu
-        JMP update_bonus
-        
-    auto_left:
-        CALL ml
-        JMP update_bonus
-        
-    auto_down:
-        CALL md
-        JMP update_bonus
-        
-    auto_right:
-        CALL mr
-        
-    update_bonus:
-        ; Random chance to spawn bonus food
-        CMP bonus_active, 1
-        JE read
-        
-        ; Random chance based on score
-        MOV AH, 00h
-        INT 1AH
-        ADD DX, random_seed
-        MOV random_seed, DX
-        
-        ; Chance increases with score
-        MOV AL, score
-        XOR AH, AH
-        SHL AX, 1  ; Score * 2 = % chance
-        CMP AX, 40
-        JB set_chance
-        MOV AX, 40  ; Max 40% chance
-        
-    set_chance:
-        MOV CX, 100
-        XOR DX, DX
-        DIV CX
-        
-        MOV CX, DX  ; CX = random number % 100
-        CMP CX, AX  ; Compare with chance
-        JA read     ; If random > chance, don't spawn
-        
-        CALL spawn_bonus_food
-        JMP read
-    
-ext:
-    MOV AH, 4CH
-    INT 21h     
-ends
-
-; Add obstacle to game field
-add_obstacle PROC
+; Initialize snake's initial body segments
+InitializeSnake PROC
     PUSH AX
     PUSH BX
     PUSH CX
     PUSH DX
     
-    ; Generate random position
-    MOV AH, 00h
-    INT 1AH
-    ADD DX, random_seed
-    MOV random_seed, DX
+    MOV CX, snake_length
+    MOV BX, 0          ; Index for body array
     
+init_snake_loop:
+    MOV AX, snake_head_x
+    SUB AX, BX         ; Each segment is to the left of the head initially
+    
+    ; Calculate offset in the array (BX * 2)
+    PUSH BX
+    SHL BX, 1          ; BX = BX * 2
+    MOV snake_body_x[BX], AX
+    
+    MOV AX, snake_head_y
+    MOV snake_body_y[BX], AX
+    
+    POP BX             ; Restore original BX
+    
+    INC BX
+    LOOP init_snake_loop
+    
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+InitializeSnake ENDP
+
+; Initialize game state
+InitializeGame PROC
+    PUSH AX
+    
+    MOV game_over, 0
+    MOV score, 0
+    MOV game_paused, 0
+    
+    ; Reset snake position and direction
+    MOV snake_head_x, 40
+    MOV snake_head_y, 12
+    MOV snake_length, 5
+    MOV snake_direction, 0    ; Moving right
+    MOV last_direction, 0     ; Initialize last direction
+    
+    ; Set snake speed based on difficulty
+    MOV AL, difficulty
+    CMP AL, 1
+    JE easy_speed
+    CMP AL, 2
+    JE medium_speed
+    
+    ; Hard speed
+    MOV snake_speed, 50
+    JMP speed_set
+    
+medium_speed:
+    MOV snake_speed, 75
+    JMP speed_set
+    
+easy_speed:
+    MOV snake_speed, 100
+    
+speed_set:
+    ; Initialize snake body
+    CALL InitializeSnake
+    
+    ; Generate initial food
+    CALL GenerateFood
+    
+    ; Generate obstacles based on difficulty
+    MOV AL, difficulty
+    CMP AL, 1
+    JE no_obstacles
+    
+    ; Medium or Hard difficulty
+    CALL GenerateObstacles
+    
+no_obstacles:
+    ; Initialize last update time
+    MOV AH, 0
+    INT 1Ah
+    MOV last_time, DX
+    
+    ; Clear keyboard buffer
+    MOV AH, 0Ch
+    MOV AL, 0
+    INT 21h
+    
+    POP AX
+    RET
+InitializeGame ENDP
+
+; Main game loop
+PlayGame PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    
+    CALL RenderGame    ; Initial rendering
+    
+game_loop:
+    ; Check if game is over
+    CMP game_over, 1
+    JE game_end
+    
+    ; Check for key press (non-blocking)
+    CALL ProcessInput
+    
+    ; Check if game is paused
+    CMP game_paused, 1
+    JE game_loop
+    
+    ; Get current time
+    MOV AH, 0
+    INT 1Ah            ; Get clock ticks (CX:DX)
+    
+    ; Calculate elapsed time
     MOV AX, DX
-    XOR DX, DX
-    DIV map
-    ADD DX, 162
-    MOV BX, DX 
+    SUB AX, last_time
     
-    ; Ensure position is valid (not on edge)
-    CMP BX, 160 
-    JBE find_new_pos
-    CMP BX, 1920
-    JAE find_new_pos
+    ; Handle timer wrap-around
+    CMP AX, 0
+    JGE no_wrap
+    ADD AX, 0FFFFh     ; Add max timer value
     
-    MOV AX, BX
-    MOV CL, 80
-    DIV CL
-    CMP AH, 0
-    JZ find_new_pos
+no_wrap:
+    ; Convert to milliseconds (1 tick = ~55ms)
+    MOV BX, 55
+    MUL BX
+    MOV BX, 1000
+    DIV BX             ; AX = milliseconds elapsed
     
-    MOV AX, BX
-    ADD AX, 2
-    MOV CL, 80
-    DIV CL
-    CMP AH, 0
-    JZ find_new_pos
+    ; Check if it's time to update
+    CMP AX, snake_speed
+    JL game_loop
     
-    ; Check if position is free
-    MOV DI, BX
-    ES: CMP WORD PTR [DI], 0
-    JNE find_new_pos
+    ; Update last time
+    MOV AH, 0
+    INT 1Ah
+    MOV last_time, DX
     
-    ; Store obstacle position
+    ; Move snake in current direction
+    MOV AL, snake_direction
+    MOV last_direction, AL
+    CALL MoveSnake
+    
+    ; Check for game over
+    CMP game_over, 1
+    JE game_end
+    
+    ; Render game screen
+    CALL RenderGame
+    
+    JMP game_loop
+    
+game_end:
+    ; Display game over message
+    CALL DisplayGameOver
+    
+restart_check:
+    ; Check for key press
+    MOV AH, 1
+    INT 16h
+    JZ restart_check    ; No key pressed
+    
+    ; Get the key
+    MOV AH, 0
+    INT 16h
+    
+    CMP AL, ' '        ; Space key
+    JE restart_game
+    
+    CMP AL, 27         ; ESC key
+    JE exit_to_menu
+    
+    JMP restart_check
+    
+restart_game:
+    ; Clear keyboard buffer
+    MOV AH, 0Ch
+    MOV AL, 0
+    INT 21h
+    
+    CALL InitializeGame
+    JMP game_loop
+    
+exit_to_menu:
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+PlayGame ENDP
+
+; Process keyboard input - non-blocking
+ProcessInput PROC
+    PUSH AX
+    PUSH BX
+    
+    ; Check if key is pressed (non-blocking)
+    MOV AH, 1
+    INT 16h
+    JZ no_input    ; No key pressed
+    
+    ; Get the key
+    MOV AH, 0
+    INT 16h
+    
+    ; First check scan codes for arrow keys
+    CMP AH, 48h    ; Up arrow
+    JE up_pressed
+    
+    CMP AH, 50h    ; Down arrow
+    JE down_pressed
+    
+    CMP AH, 4Bh    ; Left arrow
+    JE left_pressed
+    
+    CMP AH, 4Dh    ; Right arrow
+    JE right_pressed
+    
+    ; Then check ASCII for WASD keys
+    CMP AL, 'w'
+    JE up_pressed
+    CMP AL, 'W'
+    JE up_pressed
+    
+    CMP AL, 's'
+    JE down_pressed
+    CMP AL, 'S'
+    JE down_pressed
+    
+    CMP AL, 'a'
+    JE left_pressed
+    CMP AL, 'A'
+    JE left_pressed
+    
+    CMP AL, 'd'
+    JE right_pressed
+    CMP AL, 'D'
+    JE right_pressed
+    
+    CMP AL, 'p'
+    JE pause_toggle
+    CMP AL, 'P'
+    JE pause_toggle
+    
+    CMP AL, 27     ; ESC key
+    JE quit_game
+    
+    JMP no_input
+    
+up_pressed:
+    ; Can't go up if currently going down
+    MOV AL, last_direction
+    CMP AL, 3      ; Down
+    JE no_input
+    
+    MOV snake_direction, 2
+    JMP input_done
+    
+down_pressed:
+    ; Can't go down if currently going up
+    MOV AL, last_direction
+    CMP AL, 2      ; Up
+    JE no_input
+    
+    MOV snake_direction, 3
+    JMP input_done
+    
+left_pressed:
+    ; Can't go left if currently going right
+    MOV AL, last_direction
+    CMP AL, 0      ; Right
+    JE no_input
+    
+    MOV snake_direction, 1
+    JMP input_done
+    
+right_pressed:
+    ; Can't go left if currently going right
+    MOV AL, last_direction
+    CMP AL, 1      ; Left
+    JE no_input
+    
+    MOV snake_direction, 0
+    JMP input_done
+    
+pause_toggle:
+    MOV AL, game_paused
+    XOR AL, 1      ; Toggle pause
+    MOV game_paused, AL
+    
+    CMP AL, 1
+    JNE input_done
+    
+    ; If paused, show pause message
+    CALL RenderGame
+    
+    MOV AH, 2
+    MOV DH, 12     ; Row 12
+    MOV DL, 25     ; Column 25
+    INT 10h
+    
+    MOV SI, OFFSET pause_msg
+    CALL PrintString
+    
+    JMP input_done
+    
+quit_game:
+    MOV game_over, 1
+    
+input_done:
+    ; Clear keyboard buffer
+    MOV AH, 0Ch
+    MOV AL, 0
+    INT 21h
+    
+no_input:
+    POP BX
+    POP AX
+    RET
+ProcessInput ENDP
+
+; Move the snake based on current direction
+MoveSnake PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    PUSH SI
+    PUSH DI
+    
+    ; Store the current head position as first body segment
+    MOV CX, snake_length
+    DEC CX    ; Skip the last segment (will be removed if no food eaten)
+    
+    ; Shift all body segments
+shift_loop:
+    CMP CX, 0
+    JE shift_done
+    
+    MOV BX, CX
+    DEC BX          ; Calculate source index (current - 1)
+    
+    ; Calculate offset for destination (CX*2)
+    PUSH BX
+    MOV BX, CX
+    SHL BX, 1      ; BX = CX * 2
+    MOV DI, BX     ; DI = destination offset
+    POP BX
+    
+    ; Calculate offset for source (BX*2)
+    PUSH BX
+    SHL BX, 1      ; BX = BX * 2
+    MOV SI, BX     ; SI = source offset
+    POP BX
+    
+    ; Move X coordinate
+    MOV AX, snake_body_x[SI]
+    MOV snake_body_x[DI], AX
+    
+    ; Move Y coordinate
+    MOV AX, snake_body_y[SI]
+    MOV snake_body_y[DI], AX
+    
+    DEC CX
+    JMP shift_loop
+    
+shift_done:
+    ; First segment gets the current head position
+    MOV AX, snake_head_x
+    MOV snake_body_x[0], AX
+    
+    MOV AX, snake_head_y
+    MOV snake_body_y[0], AX
+    
+    ; Move head based on direction
+    MOV AL, snake_direction
+    
+    CMP AL, 0
+    JE move_right
+    
+    CMP AL, 1
+    JE move_left
+    
+    CMP AL, 2
+    JE move_up
+    
+    ; Direction 3 - move down
+    INC snake_head_y
+    JMP check_collisions
+    
+move_right:
+    INC snake_head_x
+    JMP check_collisions
+    
+move_left:
+    DEC snake_head_x
+    JMP check_collisions
+    
+move_up:
+    DEC snake_head_y
+    
+check_collisions:
+    ; Check for collisions with walls
+    MOV AX, snake_head_x
+    CMP AX, 0
+    JLE collision
+    
+    CMP AX, GAME_AREA_WIDTH
+    JGE collision
+    
+    MOV AX, snake_head_y
+    CMP AX, 0
+    JLE collision
+    
+    CMP AX, GAME_AREA_HEIGHT
+    JGE collision
+    
+    ; Check collision with snake body
+    MOV CX, snake_length
+    DEC CX    ; Skip the head
+    MOV SI, 0
+    
+body_collision_check:
+    CMP CX, 0
+    JE check_obstacles
+    
+    PUSH SI
+    SHL SI, 1      ; SI = SI * 2 (calculate offset)
+    
+    MOV AX, snake_body_x[SI]
+    CMP AX, snake_head_x
+    JNE next_segment
+    
+    MOV AX, snake_body_y[SI]
+    CMP AX, snake_head_y
+    JE body_collision
+    
+next_segment:
+    POP SI
+    INC SI
+    DEC CX
+    JMP body_collision_check
+    
+body_collision:
+    POP SI  ; Restore stack balance
+    JMP collision
+    
+    ; Check collision with obstacles
+check_obstacles:
+    MOV CL, obstacle_count
+    XOR CH, CH    ; Clear CH (we only need 8-bit count)
+    MOV SI, 0
+    
+obstacle_collision_check:
+    CMP CX, 0
+    JE check_food    ; No obstacles or done checking
+    
+    PUSH SI
+    SHL SI, 1       ; SI = SI * 2 (calculate offset)
+    
+    MOV AX, obstacle_x[SI]
+    CMP AX, snake_head_x
+    JNE next_obstacle
+    
+    MOV AX, obstacle_y[SI]
+    CMP AX, snake_head_y
+    JE obstacle_collision
+    
+next_obstacle:
+    POP SI
+    INC SI
+    DEC CX
+    JMP obstacle_collision_check
+    
+obstacle_collision:
+    POP SI  ; Restore stack balance
+    JMP collision
+    
+    ; Check if snake ate food
+check_food:
+    MOV AX, snake_head_x
+    CMP AX, food_x
+    JNE move_done
+    
+    MOV AX, snake_head_y
+    CMP AX, food_y
+    JNE move_done
+    
+    ; Snake ate food
+    ; Increase score
+    ADD score, 10
+    
+    ; Increase snake length
+    INC snake_length
+    
+    ; Generate new food
+    CALL GenerateFood
+    
+    ; If on hard difficulty, occasionally add new obstacle
+    CMP difficulty, 3
+    JNE move_done
+    
+    ; 25% chance of new obstacle on hard
+    CALL Random
+    AND AX, 3    ; Value 0-3
+    CMP AX, 0
+    JNE move_done
+    
+    CALL AddObstacle
+    
+    JMP move_done
+    
+collision:
+    MOV game_over, 1
+    
+move_done:
+    POP DI
+    POP SI
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+MoveSnake ENDP
+
+; Render the game screen
+RenderGame PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    
+    ; Clear screen
+    CALL ClearScreen
+    
+    ; Draw border
+    CALL DrawBorder
+    
+    ; Draw snake
+    CALL DrawSnake
+    
+    ; Draw food
+    CALL DrawFood
+    
+    ; Draw obstacles
+    CALL DrawObstacles
+    
+    ; Display score
+    MOV AH, 2
+    MOV DH, 0    ; Row 0
+    MOV DL, 2    ; Column 2
+    INT 10h
+    
+    MOV SI, OFFSET score_msg
+    CALL PrintString
+    
+    MOV AX, score
+    CALL PrintNumber
+    
+    ; Display difficulty
+    MOV AH, 2
+    MOV DH, 0      ; Row 0
+    MOV DL, 60     ; Column 60
+    INT 10h
+    
+    MOV SI, OFFSET diff_title
+    CALL PrintString
+    
+    MOV AH, 2
+    MOV DH, 0      ; Row 0
+    MOV DL, 75     ; Column 75
+    INT 10h
+    
+    MOV AL, difficulty
+    ADD AL, '0'    ; Convert to ASCII
+    MOV AH, 0Eh
+    INT 10h
+    
+    ; Display controls at bottom
+    MOV AH, 2
+    MOV DH, 24      ; Bottom row
+    MOV DL, 10      ; Column 10
+    INT 10h
+    
+    MOV SI, OFFSET controls_msg
+    CALL PrintString
+    
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+RenderGame ENDP
+
+; Draw game border
+DrawBorder PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    
+    ; Set color for border
+    MOV AH, 0Eh
+    MOV BL, border_color
+    
+    ; Draw top border
+    MOV CX, GAME_AREA_WIDTH+1
+    MOV DH, 0    ; Row 0
+    MOV DL, 0    ; Start at column 0
+    
+top_border:
+    PUSH CX
+    
+    ; Position cursor
+    MOV AH, 2
+    INT 10h
+    
+    ; Draw character
+    MOV AH, 0Eh
+    MOV AL, '-'
+    INT 10h
+    
+    ; Next column
+    INC DL
+    POP CX
+    LOOP top_border
+    
+    ; Draw bottom border
+    MOV CX, GAME_AREA_WIDTH+1
+    MOV DH, GAME_AREA_HEIGHT+1
+    MOV DL, 0
+    
+bottom_border:
+    PUSH CX
+    
+    ; Position cursor
+    MOV AH, 2
+    INT 10h
+    
+    ; Draw character
+    MOV AH, 0Eh
+    MOV AL, '-'
+    INT 10h
+    
+    ; Next column
+    INC DL
+    POP CX
+    LOOP bottom_border
+    
+    ; Draw left border
+    MOV CX, GAME_AREA_HEIGHT
+    MOV DH, 1    ; Start at row 1
+    MOV DL, 0    ; Column 0
+    
+left_border:
+    PUSH CX
+    
+    ; Position cursor
+    MOV AH, 2
+    INT 10h
+    
+    ; Draw character
+    MOV AH, 0Eh
+    MOV AL, '|'
+    INT 10h
+    
+    ; Next row
+    INC DH
+    POP CX
+    LOOP left_border
+    
+    ; Draw right border
+    MOV CX, GAME_AREA_HEIGHT
+    MOV DH, 1    ; Start at row 1
+    MOV DL, GAME_AREA_WIDTH
+    
+right_border:
+    PUSH CX
+    
+    ; Position cursor
+    MOV AH, 2
+    INT 10h
+    
+    ; Draw character
+    MOV AH, 0Eh
+    MOV AL, '|'
+    INT 10h
+    
+    ; Next row
+    INC DH
+    POP CX
+    LOOP right_border
+    
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+DrawBorder ENDP
+
+; Draw the snake
+DrawSnake PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    PUSH SI
+    
+    ; Draw head
+    MOV DH, BYTE PTR snake_head_y
+    MOV DL, BYTE PTR snake_head_x
+    
+    MOV AH, 2       ; Set cursor position
+    INT 10h
+    
+    MOV AH, 09h     ; Display character
+    MOV AL, 'O'     ; Head character
+    MOV BL, head_color
+    MOV CX, 1       ; Only once
+    INT 10h
+    
+    ; Draw body
+    MOV CX, snake_length
+    DEC CX          ; Skip the head
+    MOV SI, 0
+    
+draw_body_loop:
+    CMP CX, 0
+    JE draw_body_done
+    
+    PUSH CX
+    PUSH SI
+    
+    SHL SI, 1       ; SI = SI * 2 (calculate offset)
+    
+    MOV DH, BYTE PTR snake_body_y[SI]
+    MOV DL, BYTE PTR snake_body_x[SI]
+    
+    MOV AH, 2       ; Set cursor position
+    INT 10h
+    
+    MOV AH, 09h     ; Display character
+    MOV AL, 'o'     ; Body character
+    MOV BL, body_color
+    MOV CX, 1       ; Only once
+    INT 10h
+    
+    POP SI
+    POP CX
+    INC SI
+    DEC CX
+    JMP draw_body_loop
+    
+draw_body_done:
+    POP SI
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+DrawSnake ENDP
+
+; Draw the food
+DrawFood PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    
+    MOV DH, BYTE PTR food_y
+    MOV DL, BYTE PTR food_x
+    
+    MOV AH, 2       ; Set cursor position
+    INT 10h
+    
+    MOV AH, 09h     ; Display character
+    MOV AL, '*'     ; Food character
+    MOV BL, food_color
+    MOV CX, 1       ; Only once
+    INT 10h
+    
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+DrawFood ENDP
+
+; Draw obstacles
+DrawObstacles PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    PUSH SI
+    
+    ; Get obstacle count
     MOV CL, obstacle_count
     XOR CH, CH
-    SHL CX, 1  ; * 2 because each position is a word
-    MOV SI, CX  ; FIX - Use SI instead of CX for indexing
-    MOV obstacle_positions[SI], BX
+    MOV SI, 0
     
-    ; Place obstacle on screen
+draw_obstacle_loop:
+    CMP CX, 0
+    JE draw_obstacles_done
+    
+    PUSH CX
+    PUSH SI
+    
+    SHL SI, 1      ; SI = SI * 2 (calculate offset)
+    
+    MOV DH, BYTE PTR obstacle_y[SI]
+    MOV DL, BYTE PTR obstacle_x[SI]
+    
+    MOV AH, 2       ; Set cursor position
+    INT 10h
+    
+    MOV AH, 09h     ; Display character
+    MOV AL, '#'     ; Obstacle character
+    MOV BL, obstacle_color
+    MOV CX, 1       ; Only once
+    INT 10h
+    
+    POP SI
+    POP CX
+    INC SI
+    DEC CX
+    JMP draw_obstacle_loop
+    
+draw_obstacles_done:
+    POP SI
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+DrawObstacles ENDP
+
+; Generate food at random position
+GenerateFood PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    PUSH SI
+    
+generate_food_retry:
+    ; Generate random X position (1 to GAME_AREA_WIDTH-1)
+    CALL Random
+    MOV DX, 0
+    MOV BX, GAME_AREA_WIDTH-1
+    DIV BX          ; DX = remainder (0 to WIDTH-2)
+    INC DX          ; Adjust to 1 to WIDTH-1
+    MOV food_x, DX
+    
+    ; Generate random Y position (1 to GAME_AREA_HEIGHT-1)
+    CALL Random
+    MOV DX, 0
+    MOV BX, GAME_AREA_HEIGHT-1
+    DIV BX          ; DX = remainder (0 to HEIGHT-2)
+    INC DX          ; Adjust to 1 to HEIGHT-1
+    MOV food_y, DX
+    
+    ; Check if food overlaps with snake head
+    MOV AX, food_x
+    CMP AX, snake_head_x
+    JNE check_body_overlap
+    
+    MOV AX, food_y
+    CMP AX, snake_head_y
+    JE generate_food_retry
+    
+    ; Check if food overlaps with snake body
+check_body_overlap:
+    MOV CX, snake_length
+    MOV SI, 0
+    
+check_body_loop:
+    CMP CX, 0
+    JE check_obstacle_overlap
+    
+    PUSH SI
+    SHL SI, 1      ; SI = SI * 2 (calculate offset)
+    
+    MOV AX, snake_body_x[SI]
+    CMP AX, food_x
+    JNE next_body_check
+    
+    MOV AX, snake_body_y[SI]
+    CMP AX, food_y
+    JE food_body_overlap
+    
+next_body_check:
+    POP SI
+    INC SI
+    DEC CX
+    JMP check_body_loop
+    
+food_body_overlap:
+    POP SI  ; Restore stack balance
+    JMP generate_food_retry
+    
+    ; Check if food overlaps with obstacles
+check_obstacle_overlap:
+    MOV CL, obstacle_count
+    XOR CH, CH
+    MOV SI, 0
+    
+check_obstacle_loop:
+    CMP CX, 0
+    JE food_valid    ; No more obstacles to check
+    
+    PUSH SI
+    SHL SI, 1      ; SI = SI * 2 (calculate offset)
+    
+    MOV AX, obstacle_x[SI]
+    CMP AX, food_x
+    JNE next_obstacle_check
+    
+    MOV AX, obstacle_y[SI]
+    CMP AX, food_y
+    JE food_obstacle_overlap
+    
+next_obstacle_check:
+    POP SI
+    INC SI
+    DEC CX
+    JMP check_obstacle_loop
+    
+food_obstacle_overlap:
+    POP SI  ; Restore stack balance
+    JMP generate_food_retry
+    
+food_valid:
+    POP SI
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+GenerateFood ENDP
+
+; Generate obstacles based on difficulty
+GenerateObstacles PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    PUSH SI
+    
+    ; Clear existing obstacles
+    MOV obstacle_count, 0
+    
+    ; Skip if easy difficulty
+    CMP difficulty, 1
+    JE obstacles_done
+    
+    ; Determine number of obstacles based on difficulty
+    MOV BL, difficulty
+    DEC BL          ; 1 for medium, 2 for hard
+    MOV AL, 7       ; Base number of obstacles
+    MUL BL          ; AL = 7 * difficulty modifier
+    MOV CL, AL      ; Number of obstacles to generate
+    
+    ; For hard mode, add some more for extra challenge
+    CMP difficulty, 3
+    JNE set_obstacle_count
+    ADD CL, 6
+    
+set_obstacle_count:
+    ; Make sure not to exceed max obstacles
+    CMP CL, max_obstacles
+    JLE obstacle_count_ok
+    MOV CL, max_obstacles
+    
+obstacle_count_ok:
+    MOV obstacle_count, CL
+    MOV SI, 0      ; Obstacle index
+    
+generate_obstacles_loop:
+    CMP SI, CX
+    JGE obstacles_done
+    
+    ; Generate random X position (1 to GAME_AREA_WIDTH-1)
+    CALL Random
+    MOV DX, 0
+    PUSH BX
+    MOV BX, GAME_AREA_WIDTH-1
+    DIV BX          ; DX = remainder (0 to WIDTH-2)
+    POP BX
+    INC DX          ; Adjust to 1 to WIDTH-1
+    
+    ; Store X position using index
+    PUSH SI
+    SHL SI, 1       ; SI = SI * 2 (calculate offset)
+    MOV obstacle_x[SI], DX
+    POP SI
+    
+    ; Generate random Y position (1 to GAME_AREA_HEIGHT-1)
+    CALL Random
+    MOV DX, 0
+    PUSH BX
+    MOV BX, GAME_AREA_HEIGHT-1
+    DIV BX          ; DX = remainder (0 to HEIGHT-2)
+    POP BX
+    INC DX          ; Adjust to 1 to HEIGHT-1
+    
+    ; Store Y position using index
+    PUSH SI
+    SHL SI, 1       ; SI = SI * 2 (calculate offset)
+    MOV obstacle_y[SI], DX
+    POP SI
+    
+    ; Check if obstacle overlaps with snake or starting area
+    ; Give some space around starting position
+    PUSH SI
+    SHL SI, 1       ; SI = SI * 2 (calculate offset)
+    MOV AX, obstacle_x[SI]
+    POP SI
+    
+    SUB AX, snake_head_x
+    JNS check_pos_x_diff  ; Jump if not negative
+    NEG AX           ; Take absolute value
+    
+check_pos_x_diff:
+    CMP AX, 5
+    JL generate_obstacles_loop  ; Too close to snake head X
+    
+    PUSH SI
+    SHL SI, 1       ; SI = SI * 2 (calculate offset)
+    MOV AX, obstacle_y[SI]
+    POP SI
+    
+    SUB AX, snake_head_y
+    JNS check_pos_y_diff  ; Jump if not negative
+    NEG AX           ; Take absolute value
+    
+check_pos_y_diff:
+    CMP AX, 5
+    JL generate_obstacles_loop  ; Too close to snake head Y
+    
+    ; Check if overlaps with existing obstacles
+    PUSH SI          ; Save current obstacle index
+    MOV BX, 0        ; Start checking from first obstacle
+    
+check_existing_obstacles:
+    CMP BX, SI
+    JGE obstacle_position_valid
+    
+    ; Compare X positions
+    PUSH SI
+    PUSH BX
+    
+    SHL SI, 1       ; SI = SI * 2 (calculate offset)
+    SHL BX, 1       ; BX = BX * 2 (calculate offset)
+    
+    MOV AX, obstacle_x[SI]
+    CMP AX, obstacle_x[BX]
+    
+    POP BX
+    POP SI
+    
+    JNE next_obstacle_overlap_check
+    
+    ; Compare Y positions
+    PUSH SI
+    PUSH BX
+    
+    SHL SI, 1       ; SI = SI * 2 (calculate offset)
+    SHL BX, 1       ; BX = BX * 2 (calculate offset)
+    
+    MOV AX, obstacle_y[SI]
+    CMP AX, obstacle_y[BX]
+    
+    POP BX
+    POP SI
+    
+    JE obstacle_overlap_found
+    
+next_obstacle_overlap_check:
+    INC BX
+    JMP check_existing_obstacles
+    
+obstacle_overlap_found:
+    POP SI           ; Restore obstacle index
+    JMP generate_obstacles_loop
+    
+obstacle_position_valid:
+    POP SI           ; Restore obstacle index
+    
+    INC SI          ; Next obstacle
+    JMP generate_obstacles_loop
+    
+obstacles_done:
+    POP SI
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+GenerateObstacles ENDP
+
+; Add a single new obstacle (for hard mode during gameplay)
+AddObstacle PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    PUSH SI
+    
+    ; Check if we already have max obstacles
+    MOV AL, obstacle_count
+    CMP AL, max_obstacles
+    JGE add_obstacle_done
+    
+    ; Get current obstacle index
     XOR AH, AH
-    MOV AL, current_theme
-    MOV BL, 6  ; Each theme uses 6 color bytes
-    MUL BL
-    ADD AX, 4  ; Index of obstacle color
-    MOV SI, AX  ; FIX - Use SI instead of AX for indexing
-    MOV BL, theme_colors[SI]
-    MOV BH, 219  ; Solid block character
+    MOV SI, AX      ; SI = obstacle_count (current index)
     
-    MOV CL, obstacle_count
-    XOR CH, CH
-    SHL CX, 1  ; * 2 because each position is a word
-    MOV SI, CX  ; FIX - Use SI instead of CX for indexing
-    MOV DI, obstacle_positions[SI]
-    ES: MOV [DI], BX
+add_obstacle_retry:
+    ; Generate random X position (1 to GAME_AREA_WIDTH-1)
+    CALL Random
+    MOV DX, 0
+    PUSH BX
+    MOV BX, GAME_AREA_WIDTH-1
+    DIV BX          ; DX = remainder (0 to WIDTH-2)
+    POP BX
+    INC DX          ; Adjust to 1 to WIDTH-1
     
+    ; Store X position
+    PUSH SI
+    SHL SI, 1       ; SI = SI * 2 (calculate offset)
+    MOV obstacle_x[SI], DX
+    POP SI
+    
+    ; Generate random Y position (1 to GAME_AREA_HEIGHT-1)
+    CALL Random
+    MOV DX, 0
+    PUSH BX
+    MOV BX, GAME_AREA_HEIGHT-1
+    DIV BX          ; DX = remainder (0 to HEIGHT-2)
+    POP BX
+    INC DX          ; Adjust to 1 to HEIGHT-1
+    
+    ; Store Y position
+    PUSH SI
+    SHL SI, 1       ; SI = SI * 2 (calculate offset)
+    MOV obstacle_y[SI], DX
+    POP SI
+    
+    ; Check if overlaps with snake head
+    PUSH SI
+    SHL SI, 1       ; SI = SI * 2 (calculate offset)
+    MOV AX, obstacle_x[SI]
+    POP SI
+    
+    CMP AX, snake_head_x
+    JNE check_obstacle_body_overlap
+    
+    PUSH SI
+    SHL SI, 1       ; SI = SI * 2 (calculate offset)
+    MOV AX, obstacle_y[SI]
+    POP SI
+    
+    CMP AX, snake_head_y
+    JE add_obstacle_retry
+    
+    ; Check if overlaps with snake body
+check_obstacle_body_overlap:
+    MOV CX, snake_length
+    MOV BX, 0
+    
+check_obstacle_body_loop:
+    CMP CX, 0
+    JE check_obstacle_food_overlap
+    
+    ; Check X coordinate
+    PUSH SI
+    PUSH BX
+    
+    SHL SI, 1       ; SI = SI * 2 (calculate offset)
+    SHL BX, 1       ; BX = BX * 2 (calculate offset)
+    
+    MOV AX, snake_body_x[BX]
+    CMP AX, obstacle_x[SI]
+    
+    POP BX
+    POP SI
+    
+    JNE next_obstacle_body_check
+    
+    ; Check Y coordinate
+    PUSH SI
+    PUSH BX
+    
+    SHL SI, 1       ; SI = SI * 2 (calculate offset)
+    SHL BX, 1       ; BX = BX * 2 (calculate offset)
+    
+    MOV AX, snake_body_y[BX]
+    CMP AX, obstacle_y[SI]
+    
+    POP BX
+    POP SI
+    
+    JE add_obstacle_retry
+    
+next_obstacle_body_check:
+    INC BX
+    DEC CX
+    JMP check_obstacle_body_loop
+    
+    ; Check if overlaps with food
+check_obstacle_food_overlap:
+    PUSH SI
+    SHL SI, 1       ; SI = SI * 2 (calculate offset)
+    MOV AX, obstacle_x[SI]
+    POP SI
+    
+    CMP AX, food_x
+    JNE obstacle_add_valid
+    
+    PUSH SI
+    SHL SI, 1       ; SI = SI * 2 (calculate offset)
+    MOV AX, obstacle_y[SI]
+    POP SI
+    
+    CMP AX, food_y
+    JE add_obstacle_retry
+    
+obstacle_add_valid:
     ; Increment obstacle count
     INC obstacle_count
-    JMP done_adding
     
-find_new_pos:
-    ; Try a different position
-    ADD random_seed, 37
-    
-done_adding:
+add_obstacle_done:
+    POP SI
     POP DX
     POP CX
     POP BX
     POP AX
     RET
-add_obstacle ENDP
+AddObstacle ENDP
 
-; Spawn bonus food
-spawn_bonus_food PROC
+; Display game over message
+DisplayGameOver PROC
     PUSH AX
     PUSH BX
     PUSH CX
     PUSH DX
     
-    ; Generate random position for bonus food
-    MOV AH, 00h
-    INT 1AH
-    ADD DX, random_seed
-    MOV random_seed, DX
+    ; Position cursor in center of screen
+    MOV AH, 2
+    MOV DH, 12
+    MOV DL, 25
+    INT 10h
     
-    MOV AX, DX
-    XOR DX, DX
-    DIV map
-    ADD DX, 162
-    MOV BX, DX 
+    ; Set color
+    MOV BL, 12    ; Bright red
     
-    ; Ensure position is valid (not on edge)
-    CMP BX, 160 
-    JBE bonus_done
-    CMP BX, 1920
-    JAE bonus_done
+    ; Print game over message
+    MOV SI, OFFSET game_over_msg
+    CALL PrintString
     
-    MOV AX, BX
-    MOV CL, 80
-    DIV CL
-    CMP AH, 0
-    JZ bonus_done
+    ; Show final score
+    MOV AH, 2
+    MOV DH, 14
+    MOV DL, 35
+    INT 10h
     
-    MOV AX, BX
-    ADD AX, 2
-    MOV CL, 80
-    DIV CL
-    CMP AH, 0
-    JZ bonus_done
+    MOV SI, OFFSET score_msg
+    CALL PrintString
     
-    ; Check if position is free
-    MOV DI, BX
-    ES: CMP WORD PTR [DI], 0
-    JNE bonus_done
+    MOV AX, score
+    CALL PrintNumber
     
-    ; Generate random bonus type (1-3)
-    MOV AH, 00h
-    INT 1AH
-    MOV AX, DX
-    XOR DX, DX
-    MOV CX, 3
-    DIV CX
-    INC DL  ; Type is 1-3
-    MOV bonus_type, DL
-    
-    ; Set bonus value based on type
-    CMP bonus_type, 1
-    JE bonus_type1
-    CMP bonus_type, 2
-    JE bonus_type2
-    JMP bonus_type3
-    
-bonus_type1:
-    MOV bonus_value, 3
-    MOV bonus_size, 1
-    JMP set_bonus
-    
-bonus_type2:
-    MOV bonus_value, 5
-    MOV bonus_size, 2
-    JMP set_bonus
-    
-bonus_type3:
-    MOV bonus_value, 8
-    MOV bonus_size, 3
-    
-set_bonus:
-    ; Set bonus active and position
-    MOV bonus_active, 1
-    MOV bonus_pos, BX
-    
-    ; Set timer based on speed (faster speed = less time)
-    MOV AX, 200
-    MOV BL, speed_level
-    DIV BL
-    MOV bonus_timer, AX
-    
-    ; Display bonus food
-    MOV DI, bonus_pos
-    XOR AH, AH
-    MOV AL, current_theme
-    MOV BL, 6  ; Each theme uses 6 color bytes
-    MUL BL
-    ADD AX, 2  ; Index of bonus food color
-    MOV SI, AX  ; FIX - Use SI instead of AX for indexing
-    MOV BL, theme_colors[SI]
-    
-    ; Character based on size
-    MOV AL, bonus_size
-    ADD AL, '0'  ; Convert to ASCII digit
-    MOV AH, BL
-    ES: MOV [DI], AX
-    
-bonus_done:
     POP DX
     POP CX
     POP BX
     POP AX
     RET
-spawn_bonus_food ENDP
+DisplayGameOver ENDP
 
-;Game screen 
-bild PROC ; ve border, score, lives, ran va * len man hinh
-    ;start point
-    CALL border 
-
-    CALL print_score
-    
-    LEA SI, hlths
-    MOV DI, 60
-    MOV CX, 9
-    loph:
-        MOVSB
-        INC DI 
-        LOOP loph
-        
-    ; Apply snake color based on theme
-    XOR AH, AH
-    MOV AL, current_theme
-    MOV BL, 6  ; Each theme uses 6 color bytes
-    MUL BL
-    MOV SI, AX  ; FIX - Use SI instead of AX for indexing
-    MOV BL, theme_colors[SI]  ; Index 0 is snake color
-    MOV AH, BL
-        
-    XOR DX, DX 
-    MOV DI, sadd ; vi tri bat dau cua ran (o giua man hinh)
-    MOV DL, snake 
-    MOV DH, AH  ; Color attribute
-    ES: MOV [DI], DX  ; dat ran len man hinh
-        
-    CALL place_food
-    RET
-bild ENDP  
-
-;snake move:
-;left:
-ml PROC ; di chuyen sang trai
-    PUSH DX 
-    CALL shift_addrs
-    SUB sadd, 2
-    
-    CALL eat
-    
-    CALL move_snake
-    POP DX
-RET    
-ENDP
-;right:
-mr PROC ; di chuyen sang phai
-    PUSH DX 
-    CALL shift_addrs
-    ADD sadd, 2
-    
-    CALL eat
-    
-    CALL move_snake 
-    
-    POP DX
-    
-RET    
-ENDP
-;up:
-mu PROC ; di chuyen len tren
-    PUSH DX 
-    CALL shift_addrs
-    SUB sadd, 80
-    
-    CALL eat
-    
-    CALL move_snake
-    POP DX
-RET    
-ENDP
-;down:
-md PROC ; di chuyen xuong duoi
-    PUSH DX 
-    CALL shift_addrs
-    ADD sadd, 80
-    
-    CALL eat
-    
-    CALL move_snake
-    POP DX
-RET    
-ENDP
-
-shift_addrs PROC
+; Display main menu
+DisplayMainMenu PROC
     PUSH AX
-    XOR CH, CH
-    XOR BH, BH
-    MOV CL, snakel
-    INC CL 
-    MOV AL, 2
-    MUL CL
-    MOV BL, AL
-    
-    XOR DX, DX
-    
-    shiftsnake:
-        MOV SI, BX  ; FIX - Use SI for indexing
-        SUB SI, 2
-        MOV DX, sadd[SI]
-        MOV sadd[BX], DX
-        SUB BX, 2 ; cac phan tu trong sadd cach nhau 2
-                  ; vi sadd co kieu du lieu la DW
-        LOOP shiftsnake:
-    POP AX
-    RET
-ENDP
-
-eat PROC ; kiem tra ran co va cham voi border, *, hay tu an chinh no khong
-    PUSH AX 
-    PUSH CX 
-    
-    MOV DI, sadd 
-    ES: CMP WORD PTR [DI], 0 
-    JZ no
-    ES: CMP BYTE PTR [DI], 20h
-    JZ wall
-    
-    ; Check if hit obstacle (solid block character)
-    ES: CMP BYTE PTR [DI], 219
-    JE wallk
-    
-    ; Check if ate normal food
-    ES: CMP WORD PTR [DI], 0404h
-    JE addf
-    
-    ; Check if number character (1-3) for bonus food
-    ES: CMP BYTE PTR [DI], '1'
-    JE add_bonus
-    ES: CMP BYTE PTR [DI], '2'
-    JE add_bonus
-    ES: CMP BYTE PTR [DI], '3'
-    JE add_bonus
-    
-    ; Otherwise snake hit itself
-    JMP wallk
-
-    add_bonus:
-        ; Get bonus value
-        MOV AL, bonus_value
-        ADD score, AL
-        
-        MOV bonus_active, 0
-        MOV bonus_pos, 0
-        
-        ; Grow snake based on bonus size
-        XOR BH, BH
-        MOV BL, snakel
-        MOV AL, bonus_size
-        ADD BL, AL
-        MOV snakel, BL
-        
-        ; Set all new segments to body character
-        MOV CX, 0
-        MOV CL, bonus_size
-        XOR DI, DI       ; Xóa DI (d?t v? 0)
-        MOV DL, snakel   ; T?i giá tr? 8-bit vào thanh ghi 8-bit
-        MOV DI, DX       ; Gán giá tr? 16-bit vào DI
-        SUB DI, CX
-        
-    bonus_grow_loop:
-        MOV snake[DI], 8
-        INC DI
-        LOOP bonus_grow_loop
-        
-        ES: MOV WORD PTR [DI], 0
-        CALL print_score
-        CALL place_food
-        JMP no
-        
-    addf:
-        INC score
-        MOV letadd, 0 
-        XOR BH, BH
-        MOV BL, snakel
-        MOV snake[BX], 8
-        ES: MOV WORD PTR [DI], 0
-        INC snakel
-        CALL print_score
-        CALL place_food
-        JMP no
-        
-    wall:
-        CMP DI, 160 
-        JBE wallk ; cham tuong tren
-        CMP DI, 1920
-        JAE wallk  ; cham tuong duoi
-        MOV AX, DI
-        MOV BL, 80
-        DIV BL
-        CMP AH, 0
-        JZ wallk ; cham tuong trai
-        MOV AX, DI
-        ADD AX, 2
-        MOV BL, 80
-        DIV BL
-        CMP AH, 0
-        JZ wallk ; cham tuong phai
-        JMP no
-        
-    wallk:
-        XOR BH, BH
-        MOV BL, hlth
-        SUB hlth, 2
-        CMP hlth, 0
-        JNZ rest
-        MOV SI, BX  ; FIX - Use SI for indexing
-        ADD SI, 72
-        ES: MOV WORD PTR [SI], 0
-        POP CX
-        POP AX
-        CALL game_over 
-        
-    rest:
-        MOV SI, BX  ; FIX - Use SI for indexing
-        ADD SI, 72
-        ES: MOV WORD PTR [SI], 0 
-        MOV SI, BX  ; FIX - Use SI for indexing
-        ADD SI, 2
-        MOV hlths[SI], 0
-        POP CX
-        POP AX
-        CALL restart
-        
-    no:
-        POP CX
-        POP AX
-RET
-ENDP 
-
-place_food PROC ; dat * o vi tri ngau nhien
-    PUSH AX
+    PUSH BX
+    PUSH CX
     PUSH DX
-    lap:    
-        MOV AH, 00h
-        INT 1AH ; lay system time, luu o DX
-        ADD DX, random_seed
-        MOV random_seed, DX
-        
-        MOV AX, DX
-        XOR DX, DX
-        DIV map
-        ADD DX, 162
-        MOV BX, DX 
-        
-        MOV AX, DX  
-        XOR DX, DX
-        DIV two
-        CMP DX, 0
-        JNE lap
-        
-    XOR DX, DX 
-    MOV AX, BX
-    DIV et
-    CMP DX, 0
-    JE inleft
     
-    XOR DX, DX    
-    MOV AX, BX
-    ADD AX, 2
-    DIV et
-    CMP DX, 0
-    JE inright
-
-    inleft:
-        ADD BX, 2
-        JMP check_position
-        
-    inright:
-        SUB BX, 2
-        
-    check_position:
-        ; Make sure food doesn't spawn on obstacles
-        MOV DI, BX
-        ES: CMP WORD PTR [DI], 0
-        JNE lap  ; Position not empty, try again
-        
-    spawn:
-        ; Set food color based on theme
-        XOR AH, AH
-        MOV AL, current_theme
-        MOV CL, 6  ; Each theme uses 6 color bytes
-        MUL CL
-        ADD AX, 1  ; Index 1 is food color
-        MOV SI, AX  ; FIX - Use SI instead of AX for indexing
-        MOV CL, theme_colors[SI]
-        MOV CH, 4  ; Red/food color attribute
-        MOV DX, 0404h
-        MOV DH, CL
-        
-        MOV DI, BX
-        ES: MOV [DI], DX
-        MOV letadd, BX
-    POP DX
-    POP AX 
-    RET
-place_food ENDP
-
-move_snake PROC
-    XOR CH, CH
-    XOR SI, SI
-    XOR DL, DL
-    MOV CL, snakel
-    XOR BX, BX
-    
-    ; Apply snake color based on theme
-    PUSH AX
-    XOR AH, AH
-    MOV AL, current_theme
-    MOV BL, 6  ; Each theme uses 6 color bytes
-    MUL BL
-    MOV SI, AX  ; FIX - Use SI instead of AX for indexing
-    MOV BL, theme_colors[SI]  ; Index 0 is snake color
-    MOV AH, BL
-    POP AX
-    
-    XOR SI, SI  ; Reset SI for next loop
-    
-    l1mr:
-        MOV DI, sadd[SI]
-        MOV DL, snake[BX]
-        MOV DH, AH  ; Use theme color
-        ES: MOV [DI], DX
-        ADD SI, 2
-        INC BX
-        LOOP l1mr
-    MOV DI, sadd[SI] 
-    ES: MOV WORD PTR [DI], 0
-    RET
-move_snake ENDP
-
-border PROC ; ve border
-    MOV AH, 0
-    MOV AL, 0
-    INT 10h  ; chuyen man hinh -> 40 x 25
-    
-    ; Set border color based on theme
-    XOR AH, AH
-    MOV AL, current_theme
-    MOV BL, 6  ; Each theme uses 6 color bytes
-    MUL BL
-    ADD AX, 3  ; Index 3 is border color
-    MOV SI, AX  ; FIX - Use SI instead of AX for indexing
-    MOV BL, theme_colors[SI]
-    MOV BH, BL
-    
-    MOV AH, 6
-    MOV AL, 0 
-    ; BH already set to border color
-    
-    MOV CH, 1
-    MOV CL, 0
-    MOV DH, 1
-    MOV DL, 39
-    INT 10h ; tren
-  
-    MOV CH, 1
-    MOV CL, 0
-    MOV DH, 24
-    MOV DL, 0
-    INT 10h ; trai
-   
-    MOV CH, 24
-    MOV CL, 0
-    MOV DH, 24
-    MOV DL, 39
-    INT 10h ; duoi
-    
-    MOV CH, 1
-    MOV CL, 39
-    MOV DH, 24
-    MOV DL, 39
-    INT 10h ; phai
-
-RET
-ENDP
-
-print_score PROC
+    ; Position cursor for title
     MOV AH, 2
-    MOV DH, 0
-    MOV DL, 0
-    MOV BH, 0
-    INT 10h ; di chuyen con tro ve vi tri (0, 0)
+    MOV DH, 5
+    MOV DL, 35
+    INT 10h
     
-    MOV AH, 9
-    LEA DX, sc
+    ; Print title
+    MOV SI, OFFSET menu_title
+    CALL PrintString
+    
+    ; Print menu options
+    MOV AH, 2
+    MOV DH, 8
+    MOV DL, 35
+    INT 10h
+    
+    MOV SI, OFFSET menu_start
+    CALL PrintString
+    
+    MOV AH, 2
+    MOV DH, 10
+    MOV DL, 35
+    INT 10h
+    
+    MOV SI, OFFSET menu_settings
+    CALL PrintString
+    
+    MOV AH, 2
+    MOV DH, 12
+    MOV DL, 35
+    INT 10h
+    
+    MOV SI, OFFSET menu_exit
+    CALL PrintString
+    
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+DisplayMainMenu ENDP
+
+; Display settings menu
+DisplaySettingsMenu PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    
+    ; Position cursor for title
+    MOV AH, 2
+    MOV DH, 5
+    MOV DL, 35
+    INT 10h
+    
+    ; Print title
+    MOV SI, OFFSET settings_title
+    CALL PrintString
+    
+    ; Print settings options
+    MOV AH, 2
+    MOV DH, 8
+    MOV DL, 35
+    INT 10h
+    
+    MOV SI, OFFSET settings_theme
+    CALL PrintString
+    
+    MOV AH, 2
+    MOV DH, 10
+    MOV DL, 35
+    INT 10h
+    
+    MOV SI, OFFSET settings_diff
+    CALL PrintString
+    
+    MOV AH, 2
+    MOV DH, 12
+    MOV DL, 35
+    INT 10h
+    
+    MOV SI, OFFSET settings_back
+    CALL PrintString
+    
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+DisplaySettingsMenu ENDP
+
+; Display theme menu
+DisplayThemeMenu PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    
+    ; Position cursor for title
+    MOV AH, 2
+    MOV DH, 5
+    MOV DL, 35
+    INT 10h
+    
+    ; Print title
+    MOV SI, OFFSET theme_title
+    CALL PrintString
+    
+    ; Print theme options
+    MOV AH, 2
+    MOV DH, 8
+    MOV DL, 35
+    INT 10h
+    
+    MOV SI, OFFSET theme_classic
+    CALL PrintString
+    
+    ; Show current selection
+    CMP current_theme, 1
+    JNE check_blue
+    
+    MOV AH, 2
+    MOV DL, 50
+    INT 10h
+    
+    MOV AH, 0Eh
+    MOV AL, '<'
+    INT 10h
+    
+check_blue:
+    MOV AH, 2
+    MOV DH, 10
+    MOV DL, 35
+    INT 10h
+    
+    MOV SI, OFFSET theme_blue
+    CALL PrintString
+    
+    ; Show current selection
+    CMP current_theme, 2
+    JNE check_red
+    
+    MOV AH, 2
+    MOV DL, 50
+    INT 10h
+    
+    MOV AH, 0Eh
+    MOV AL, '<'
+    INT 10h
+    
+check_red:
+    MOV AH, 2
+    MOV DH, 12
+    MOV DL, 35
+    INT 10h
+    
+    MOV SI, OFFSET theme_red
+    CALL PrintString
+    
+    ; Show current selection
+    CMP current_theme, 3
+    JNE theme_back_option
+    
+    MOV AH, 2
+    MOV DL, 50
+    INT 10h
+    
+    MOV AH, 0Eh
+    MOV AL, '<'
+    INT 10h
+    
+theme_back_option:
+    MOV AH, 2
+    MOV DH, 14
+    MOV DL, 35
+    INT 10h
+    
+    MOV SI, OFFSET theme_back
+    CALL PrintString
+    
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+DisplayThemeMenu ENDP
+
+; Display difficulty menu
+DisplayDifficultyMenu PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    
+    ; Position cursor for title
+    MOV AH, 2
+    MOV DH, 5
+    MOV DL, 35
+    INT 10h
+    
+    ; Print title
+    MOV SI, OFFSET diff_title
+    CALL PrintString
+    
+    ; Print difficulty options
+    MOV AH, 2
+    MOV DH, 8
+    MOV DL, 35
+    INT 10h
+    
+    MOV SI, OFFSET diff_easy
+    CALL PrintString
+    
+    ; Show current selection
+    CMP difficulty, 1
+    JNE check_medium
+    
+    MOV AH, 2
+    MOV DL, 50
+    INT 10h
+    
+    MOV AH, 0Eh
+    MOV AL, '<'
+    INT 10h
+    
+    ; Show description
+    MOV AH, 2
+    MOV DH, 9
+    MOV DL, 36
+    INT 10h
+    
+    MOV SI, OFFSET diff_easy_desc
+    CALL PrintString
+    
+check_medium:
+    MOV AH, 2
+    MOV DH, 11
+    MOV DL, 35
+    INT 10h
+    
+    MOV SI, OFFSET diff_medium
+    CALL PrintString
+    
+    ; Show current selection
+    CMP difficulty, 2
+    JNE check_hard
+    
+    MOV AH, 2
+    MOV DL, 50
+    INT 10h
+    
+    MOV AH, 0Eh
+    MOV AL, '<'
+    INT 10h
+    
+    ; Show description
+    MOV AH, 2
+    MOV DH, 12
+    MOV DL, 36
+    INT 10h
+    
+    MOV SI, OFFSET diff_med_desc
+    CALL PrintString
+    
+check_hard:
+    MOV AH, 2
+    MOV DH, 14
+    MOV DL, 35
+    INT 10h
+    
+    MOV SI, OFFSET diff_hard
+    CALL PrintString
+    
+    ; Show current selection
+    CMP difficulty, 3
+    JNE diff_back_option
+    
+    MOV AH, 2
+    MOV DL, 50
+    INT 10h
+    
+    MOV AH, 0Eh
+    MOV AL, '<'
+    INT 10h
+    
+    ; Show description
+    MOV AH, 2
+    MOV DH, 15
+    MOV DL, 36
+    INT 10h
+    
+    MOV SI, OFFSET diff_hard_desc
+    CALL PrintString
+    
+diff_back_option:
+    MOV AH, 2
+    MOV DH, 17
+    MOV DL, 35
+    INT 10h
+    
+    MOV SI, OFFSET diff_back
+    CALL PrintString
+    
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+DisplayDifficultyMenu ENDP
+
+; Wait for menu input and process selection
+WaitForMenuInput PROC
+    PUSH AX
+    PUSH BX
+    
+menu_input_loop:
+    ; Wait for key press
+    MOV AH, 0
+    INT 16h
+    
+    ; Process input based on current menu
+    CMP current_menu, 0
+    JE process_main_menu
+    
+    CMP current_menu, 2
+    JE process_settings_menu
+    
+    CMP current_menu, 3
+    JE process_theme_menu
+    
+    CMP current_menu, 4
+    JE process_difficulty_menu
+    
+    JMP menu_input_done
+    
+process_main_menu:
+    CMP AL, '1'
+    JE start_game_selected
+    
+    CMP AL, '2'
+    JE settings_selected
+    
+    CMP AL, '3'
+    JE exit_selected
+    
+    JMP menu_input_loop
+    
+process_settings_menu:
+    CMP AL, '1'
+    JE theme_selected
+    
+    CMP AL, '2'
+    JE difficulty_selected
+    
+    CMP AL, '3'
+    JE settings_back_selected
+    
+    JMP menu_input_loop
+    
+process_theme_menu:
+    CMP AL, '1'
+    JE classic_theme_selected
+    
+    CMP AL, '2'
+    JE blue_theme_selected
+    
+    CMP AL, '3'
+    JE red_theme_selected
+    
+    CMP AL, '4'
+    JE theme_back_selected
+    
+    JMP menu_input_loop
+    
+process_difficulty_menu:
+    CMP AL, '1'
+    JE easy_difficulty_selected
+    
+    CMP AL, '2'
+    JE medium_difficulty_selected
+    
+    CMP AL, '3'
+    JE hard_difficulty_selected
+    
+    CMP AL, '4'
+    JE difficulty_back_selected
+    
+    JMP menu_input_loop
+    
+start_game_selected:
+    MOV current_menu, 1    ; Change to game mode
+    JMP menu_input_done
+    
+settings_selected:
+    MOV current_menu, 2    ; Change to settings menu
+    JMP menu_input_done
+    
+exit_selected:
+    ; Exit the game
+    MOV AX, 4C00h
     INT 21h
     
-    MOV AX, 0
-    MOV AL, score
-    MOV CX, 0
-    MOV BX, 10
-    PUSH_STACK:
-        MOV DX, 0
-        DIV BX
-        INC CX
-        PUSH DX
-        CMP AX, 0
-        JNE PUSH_STACK
-        
-    POP_STACK:
-        POP AX  ; AX = Stack.top() ; Stack.pop()
-        MOV DL, AL
-        ADD DL, '0'
-        MOV AH, 2
-        INT 21h
-        LOOP POP_STACK 
+settings_back_selected:
+    MOV current_menu, 0    ; Return to main menu
+    JMP menu_input_done
+    
+theme_selected:
+    MOV current_menu, 3    ; Go to theme menu
+    JMP menu_input_done
+    
+difficulty_selected:
+    MOV current_menu, 4    ; Go to difficulty menu
+    JMP menu_input_done
+    
+classic_theme_selected:
+    MOV current_theme, 1
+    ; Set classic theme colors
+    MOV head_color, 10     ; Green
+    MOV body_color, 2      ; Dark green
+    MOV food_color, 12     ; Red
+    MOV border_color, 15   ; White
+    MOV obstacle_color, 4  ; Red
+    JMP theme_back_selected
+    
+blue_theme_selected:
+    MOV current_theme, 2
+    ; Set blue theme colors
+    MOV head_color, 9      ; Bright blue
+    MOV body_color, 1      ; Blue
+    MOV food_color, 14     ; Yellow
+    MOV border_color, 15   ; White
+    MOV obstacle_color, 5  ; Magenta
+    JMP theme_back_selected
+    
+red_theme_selected:
+    MOV current_theme, 3
+    ; Set red theme colors
+    MOV head_color, 12     ; Bright red
+    MOV body_color, 4      ; Red
+    MOV food_color, 14     ; Yellow
+    MOV border_color, 15   ; White
+    MOV obstacle_color, 1  ; Blue
+    JMP theme_back_selected
+    
+theme_back_selected:
+    MOV current_menu, 2    ; Return to settings menu
+    JMP menu_input_done
+    
+easy_difficulty_selected:
+    MOV difficulty, 1
+    JMP difficulty_back_selected
+    
+medium_difficulty_selected:
+    MOV difficulty, 2
+    JMP difficulty_back_selected
+    
+hard_difficulty_selected:
+    MOV difficulty, 3
+    JMP difficulty_back_selected
+    
+difficulty_back_selected:
+    MOV current_menu, 2    ; Return to settings menu
+    
+menu_input_done:
+    ; Clear keyboard buffer
+    MOV AH, 0Ch
+    MOV AL, 0
+    INT 21h
+    
+    POP BX
+    POP AX
     RET
-print_score ENDP
+WaitForMenuInput ENDP
 
-restart PROC
-    CALL clearall
-    MOV snakel, 1
-    MOV BX, start_position
-    MOV sadd, BX  
-    MOV snake[0], 8
-    MOV bonus_active, 0
-    JMP startag
-ENDP
-
-game_over PROC
-    MOV hlths[6], 3
-    MOV hlths[7], 3
-    MOV hlths[8], 3
-    MOV hlth, 6
-    MOV snakel, 1
+; Print a string from DS:SI (zero-terminated)
+PrintString PROC
+    PUSH AX
+    PUSH SI
     
-    ; Update high scores
-    CALL update_high_scores
+print_loop:
+    MOV AL, [SI]
+    CMP AL, 0
+    JE print_done
     
-    MOV DI, 992
-    LEA SI, gmov
-    MOV CX, 9
-    loop1:
-        movsb 
-        INC DI
-        LOOP loop1
-        
-    MOV DI, 1064
-    LEA SI, endtxt
-    MOV CX, 17
-    loop2:
-        movsb 
-        INC DI
-        LOOP loop2 
-        
-    option:         
-        MOV AH, 7
-        INT 21h
-        CMP AL, 'y'   
-        JE restart_game
-        CMP AL, 'n'
-        JE main_menu
-        JMP option
-        
-    restart_game:
-        MOV score, 0
-        JMP startag
-        
-    to_main:
-        MOV score, 0
-        JMP main_loop
-ENDP
+    MOV AH, 0Eh    ; BIOS teletype output
+    INT 10h
+    
+    INC SI
+    JMP print_loop
+    
+print_done:
+    POP SI
+    POP AX
+    RET
+PrintString ENDP
 
-clearall PROC
-    XOR CX, CX
-    MOV DH, 24
-    MOV DL, 39
-    MOV BH, 7
-    MOV AX, 700h
-    INT 10h 
-RET
-ENDP
+; Print number in AX
+PrintNumber PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    
+    MOV BX, 10      ; Divisor
+    MOV CX, 0       ; Digit counter
+    
+    ; Handle zero case
+    CMP AX, 0
+    JNE extract_digits
+    
+    MOV AH, 0Eh
+    MOV AL, '0'
+    INT 10h
+    JMP print_number_done
+    
+extract_digits:
+    ; Extract digits in reverse order
+    CMP AX, 0
+    JE print_digits
+    
+    MOV DX, 0
+    DIV BX          ; AX = AX / 10, DX = remainder
+    
+    PUSH DX         ; Save remainder on stack
+    INC CX          ; Increment digit counter
+    
+    JMP extract_digits
+    
+print_digits:
+    ; Print digits in correct order
+    CMP CX, 0
+    JE print_number_done
+    
+    POP DX          ; Get digit from stack
+    ADD DL, '0'     ; Convert to ASCII
+    
+    MOV AH, 0Eh
+    MOV AL, DL
+    INT 10h
+    
+    DEC CX          ; Decrement digit counter
+    JMP print_digits
+    
+print_number_done:
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+PrintNumber ENDP
+
+; Clear the screen
+ClearScreen PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    
+    ; Set video mode to clear screen
+    MOV AX, 3
+    INT 10h
+    
+    ; Hide cursor
+    MOV AH, 1
+    MOV CX, 2000h
+    INT 10h
+    
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+ClearScreen ENDP
+
+; Generate a pseudo-random number
+; Returns random value in AX
+Random PROC
+    PUSH BX
+    PUSH CX
+    PUSH DX
+    
+    ; Linear congruential generator: X_next = (a*X + c) mod m
+    MOV AX, 25173       ; Multiplier (a)
+    MUL random_seed     ; DX:AX = a * X
+    ADD AX, 13849       ; Add increment (c)
+    ; We're using 16-bit operations, so mod 2^16 is automatic
+    
+    ; Update seed for next call
+    MOV random_seed, AX
+    
+    POP DX
+    POP CX
+    POP BX
+    RET
+Random ENDP
+
+END MAIN
