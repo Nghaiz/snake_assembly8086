@@ -1,5 +1,5 @@
 ; SNAKE GAME IN ASSEMBLY 8086
-; Improved version with fixes for keyboard input and movement
+
 
 .MODEL SMALL
 .STACK 100h
@@ -15,7 +15,7 @@
     snake_head_y    DW 12      ; Initial Y position
     snake_length    DW 5       ; Initial length
     snake_direction DB 0       ; 0=right, 1=left, 2=up, 3=down
-    snake_speed     DW 100     ; Default speed (milliseconds between moves)
+    snake_speed     DW 3     ; M?c d?nh (Easy) � 60ms   
     
     ; Game state variables
     game_over       DB 0       ; 0=playing, 1=game over
@@ -36,7 +36,11 @@
     max_obstacles   DB 20      ; Maximum number of obstacles
     obstacle_count  DB 0       ; Current number of obstacles
     obstacle_x      DW 20 DUP(0) ; Obstacle X positions
-    obstacle_y      DW 20 DUP(0) ; Obstacle Y positions
+    obstacle_y      DW 20 DUP(0) ; Obstacle Y positions 
+    
+    
+    old_tail_x      DW 0
+    old_tail_y      DW 0
     
     ; Colors
     head_color      DB 10      ; Green
@@ -239,15 +243,15 @@ InitializeGame PROC
     JE medium_speed
     
     ; Hard speed
-    MOV snake_speed, 50
+    MOV snake_speed, 3
     JMP speed_set
     
 medium_speed:
-    MOV snake_speed, 75
+    MOV snake_speed, 3
     JMP speed_set
     
 easy_speed:
-    MOV snake_speed, 100
+    MOV snake_speed, 3
     
 speed_set:
     ; Initialize snake body
@@ -300,34 +304,6 @@ game_loop:
     CMP game_paused, 1
     JE game_loop
     
-    ; Get current time
-    MOV AH, 0
-    INT 1Ah            ; Get clock ticks (CX:DX)
-    
-    ; Calculate elapsed time
-    MOV AX, DX
-    SUB AX, last_time
-    
-    ; Handle timer wrap-around
-    CMP AX, 0
-    JGE no_wrap
-    ADD AX, 0FFFFh     ; Add max timer value
-    
-no_wrap:
-    ; Convert to milliseconds (1 tick = ~55ms)
-    MOV BX, 55
-    MUL BX
-    MOV BX, 1000
-    DIV BX             ; AX = milliseconds elapsed
-    
-    ; Check if it's time to update
-    CMP AX, snake_speed
-    JL game_loop
-    
-    ; Update last time
-    MOV AH, 0
-    INT 1Ah
-    MOV last_time, DX
     
     ; Move snake in current direction
     MOV AL, snake_direction
@@ -338,8 +314,8 @@ no_wrap:
     CMP game_over, 1
     JE game_end
     
-    ; Render game screen
-    CALL RenderGame
+    
+    CALL UpdateScreen
     
     JMP game_loop
     
@@ -520,6 +496,19 @@ MoveSnake PROC
     PUSH DX
     PUSH SI
     PUSH DI
+    
+    ;--- Luu l?i du�i cu (segment cu?i c�ng) ---
+    MOV CX, snake_length
+    DEC CX               ; index cu?i = length-1
+    SHL CX, 1            ; CX = offset = index*2
+    ; CX d� ch?a offset = index*2
+    MOV SI, CX
+   ; load du�i cu X
+    MOV AX, snake_body_x[SI]
+    MOV old_tail_x, AX
+  ; load du�i cu Y
+    MOV AX, snake_body_y[SI]
+    MOV old_tail_y, AX
     
     ; Store the current head position as first body segment
     MOV CX, snake_length
@@ -724,7 +713,7 @@ RenderGame PROC
     PUSH DX
     
     ; Clear screen
-    CALL ClearScreen
+    ;CALL ClearScreen
     
     ; Draw border
     CALL DrawBorder
@@ -1027,6 +1016,75 @@ draw_obstacles_done:
     POP AX
     RET
 DrawObstacles ENDP
+
+;--------------------------------------------------------
+; Ch? c?p nh?t tail cu (erase), head m?i (draw) v� score
+;--------------------------------------------------------
+UpdateScreen PROC
+    PUSH AX
+    PUSH BX
+    PUSH CX
+    PUSH DX
+
+    ;-- Erase tail cu --
+    MOV AX, old_tail_y
+    MOV DH, AL
+
+    ;-- L?y old_tail_x v�o DL --
+    MOV AX, old_tail_x
+    MOV DL, AL
+    MOV AH, 2
+    INT 10h
+    MOV AH, 0Eh
+    MOV AL, ' '      ; ho?c k� t? n?n
+    INT 10h
+
+    ;-- V? d?u m?i -- 
+    MOV AX, snake_head_y
+    MOV DH, AL
+    MOV AX, snake_head_x
+    MOV DL, AL
+    MOV AH, 2
+    INT 10h
+    MOV AH, 09h
+    MOV AL, 'O'
+    MOV BL, head_color
+    MOV CX, 1
+    INT 10h
+
+    ;-- V? segment body d?u ti�n (ch? head cu) --
+    MOV SI, 0                  ; offset = 0*2
+    MOV AX, snake_body_y[SI]   ; AX = word [snake_body_y + SI]
+    MOV DH, AL                 ; DH = low-byte = Y
+
+    MOV AX, snake_body_x[SI]   ; AX = word [snake_body_x + SI]
+    MOV DL, AL                 ; DL = low-byte = X  
+
+    MOV AH, 2
+    INT 10h
+    MOV AH, 09h
+    MOV AL, 'o'
+    MOV BL, body_color
+    MOV CX, 1
+    INT 10h
+
+    ;-- C?p nh?t score ? g�c (n?u c?n) --
+    MOV AH, 2
+    MOV DH, 0
+    MOV DL, 7       ; c?t sau �Score: �
+    INT 10h
+    MOV AX, score
+    CALL PrintNumber 
+    
+    CALL DrawFood
+
+    POP DX
+    POP CX
+    POP BX
+    POP AX
+    RET
+UpdateScreen ENDP
+
 
 ; Generate food at random position
 GenerateFood PROC
